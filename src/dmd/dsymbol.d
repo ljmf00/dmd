@@ -1640,6 +1640,42 @@ public:
         }
     }
 
+
+    /*****************************************
+     * Returns: the symbols whose members have been imported, i.e. imported modules
+     * and template mixins.
+     *
+     * See_Also: importScope
+     */
+    final Dsymbols* getImportedScopes() nothrow
+    {
+        return importedScopes;
+    }
+
+    /*****************************************
+     * Returns: the visibilities array associated to each imported scopes. The
+     * length of the array match with the imported modules array.
+     *
+     * See_Also: getImportedScopes, getImportVisibilitiesSlice
+     */
+    final Visibility.Kind* getImportVisibilities() nothrow
+    {
+        return visibilities;
+    }
+
+    /*****************************************
+     * Returns: the slice version of getImportVisibilities()
+     *
+     * See_Also: getImportVisibilities
+     */
+    extern (D) final Visibility.Kind[] getImportVisibilities() nothrow
+    {
+        if (!importedScopes)
+            return null;
+
+        return visibilities[0 .. importedScopes.dim];
+    }
+
     extern (D) final void addAccessiblePackage(Package p, Visibility visibility) nothrow
     {
         auto pary = visibility.kind == Visibility.Kind.private_ ? &privateAccessiblePackages : &accessiblePackages;

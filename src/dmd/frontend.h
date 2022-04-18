@@ -1140,6 +1140,8 @@ public:
     ScopeDsymbol* syntaxCopy(Dsymbol* s);
     Dsymbol* search(const Loc& loc, Identifier* ident, int32_t flags = 8);
     virtual void importScope(Dsymbol* s, Visibility visibility);
+    Array<Dsymbol* >* getImportedScopes();
+    Visibility::Kind* getImportVisibilities();
     virtual bool isPackageAccessible(Package* p, Visibility visibility, int32_t flags = 0);
     bool isforwardRef();
     static void multiplyDefined(const Loc& loc, Dsymbol* s1, Dsymbol* s2);

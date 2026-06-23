@@ -1318,7 +1318,12 @@ void templateInstanceSemantic(TemplateInstance tempinst, Scope* sc, ArgumentList
     tempinst.semanticRun = PASS.semanticdone;
 
     if (global.params.depsOnly)
+    {
+        // Pop scopes created at lines 1233/1305 before returning
+        sc2.pop();
+        _scope.pop();
         return;
+    }
 
     /* ConditionalDeclaration may introduce eponymous declaration,
      * so we should find it once again after semantic.

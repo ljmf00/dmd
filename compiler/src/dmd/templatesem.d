@@ -21,6 +21,7 @@ import dmd.ast_node;
 import dmd.attrib;
 import dmd.dcast;
 import dmd.dclass;
+import dmd.deps : DepsCollectVisitor;
 import dmd.declaration;
 import dmd.dinterpret;
 import dmd.dmodule;
@@ -1316,6 +1317,9 @@ void templateInstanceSemantic(TemplateInstance tempinst, Scope* sc, ArgumentList
 
     tempinst.semanticRun = PASS.semanticdone;
 
+    if (global.params.depsOnly)
+        return;
+
     /* ConditionalDeclaration may introduce eponymous declaration,
      * so we should find it once again after semantic.
      */
@@ -1884,7 +1888,13 @@ private void expandMembers(TemplateInstance ti,Scope* sc2)
         runDeferredSemantic();
     }
 
-    ti.members.foreachDsymbol(&symbolDg);
+    if (global.params.depsOnly)
+    {
+        scope dcv = new DepsCollectVisitor(sc2);
+        ti.members.foreachDsymbol((s) { s.accept(dcv); });
+    }
+    else
+        ti.members.foreachDsymbol(&symbolDg);
 }
 
 private void tryExpandMembers(TemplateInstance ti, Scope* sc2)

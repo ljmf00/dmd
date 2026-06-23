@@ -630,7 +630,7 @@ private int tryMain(const(char)[][] argv, out Param params)
         removeHdrFilesAndFail(params.dihdr.doOutput, modules);
 
     // --- NEW: deps-only fast path ---
-    if (global.params.depsOnly)
+    if (params.depsOnly)
     {
         if (OutBuffer* ob = params.moduleDeps.buffer)
         {

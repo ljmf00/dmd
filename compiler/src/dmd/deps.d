@@ -41,6 +41,7 @@ import dmd.dsymbol;
 import dmd.dsymbolsem : importAll, include, load, newScope;
 import dmd.expressionsem;
 import dmd.globals : Param, Output, global;
+import dmd.mtype;
 import dmd.staticcond;
 import dmd.visitor;
 import dmd.hdrgen : visibilityToBuffer;

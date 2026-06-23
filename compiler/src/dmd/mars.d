@@ -1803,6 +1803,12 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, out Param 
             // Else output to stdout.
             params.makeDeps.doOutput = true;
         }
+        else if (arg == "-deps-only")
+        {
+            params.depsOnly = true;
+            if (!params.moduleDeps.buffer)
+                params.moduleDeps.buffer = new OutBuffer();
+        }
         else if (arg == "-main")             // https://dlang.org/dmd.html#switch-main
         {
             params.addMain = true;

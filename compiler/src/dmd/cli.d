@@ -350,6 +350,11 @@ dmd -cov -unittest myprog.d
             `Write module dependencies as text to $(I filename)
             (only imports).`,
         ),
+        Option("deps-only",
+            "print module dependencies and exit before semantic2 (fast)",
+            "Like `-deps` but skips all compiler phases except parsing and import resolution. "
+            "Outputs import dependencies only (same format as `-deps`)."
+        ),
         Option("dllimport=[none|defaultLibsOnly|externalOnly|all]",
             "Windows only: select symbols to dllimport",
             `Which symbols to dllimport implicitly if not defined in a module that is being compiled

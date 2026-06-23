@@ -629,6 +629,32 @@ private int tryMain(const(char)[][] argv, out Param params)
     if (global.errors)
         removeHdrFilesAndFail(params.dihdr.doOutput, modules);
 
+    // --- NEW: deps-only fast path ---
+    if (global.params.depsOnly)
+    {
+        if (OutBuffer* ob = params.moduleDeps.buffer)
+        {
+            foreach (m; modules)
+            {
+                if (params.v.verbose)
+                    eSink.message(Loc.initial, "deps-only %s", m.toChars());
+                DepsCollectVisitor dcv(m._scope);
+                m.accept(dcv);
+            }
+
+            const data = (*ob)[];
+            if (params.moduleDeps.name)
+            {
+                if (!writeFile(Loc.initial, params.moduleDeps.name, data))
+                    fatal();
+            }
+            else
+                printf("%.*s", cast(int)data.length, data.ptr);
+        }
+        return EXIT_SUCCESS;
+    }
+    // --- END deps-only fast path ---
+
     backend_init(params, driverParams, target);
 
     // Do semantic analysis

@@ -35,7 +35,14 @@ import core.stdc.string : strcmp;
 import dmd.common.outbuffer;
 import dmd.dimport : Import;
 import dmd.dmodule : Module;
-import dmd.globals : Param, Output;
+import dmd.attrib;
+import dmd.dscope;
+import dmd.dsymbol;
+import dmd.dsymbolsem : importAll, include, load, newScope;
+import dmd.expressionsem;
+import dmd.globals : Param, Output, global;
+import dmd.staticcond;
+import dmd.visitor;
 import dmd.hdrgen : visibilityToBuffer;
 import dmd.id : Id;
 import dmd.location : Loc;
@@ -267,4 +274,164 @@ unittest
     OutBuffer buf;
     buf.writeEscapedMakePath(input);
     assert(buf[] == expected);
+}
+
+// DepsCollectVisitor: lightweight AST walk for -deps-only
+// Walks parsed AST collecting imports, evaluating conditionals only where needed.
+extern(C++) class DepsCollectVisitor : Visitor
+{
+    alias visit = typeof(super).visit;
+
+    Scope* sc;
+
+    extern(D) this(Scope* sc)
+    {
+        this.sc = sc;
+    }
+
+    // Catch-all: skip everything we don't specifically handle
+    override void visit(Dsymbol d) {}
+
+    // Module: recurse into members using existing scope
+    override void visit(Module m)
+    {
+        if (!m.members) return;
+        foreach (s; *m.members)
+            s.accept(this);
+    }
+
+    // ScopeDsymbol: recurse into members (catches class, struct, union, template, etc.)
+    override void visit(ScopeDsymbol sd)
+    {
+        if (!sd.members) return;
+        foreach (s; *sd.members)
+            s.accept(this);
+    }
+
+    // Import: register the dependency
+    override void visit(Import imp)
+    {
+        if (imp.semanticRun > PASS.initial) return;
+        imp.semanticRun = PASS.semantic;
+        if (!imp.mod)
+        {
+            if (imp.load(sc))
+            {
+                for (size_t i; i < imp.aliasdecls.length; i++)
+                    imp.aliasdecls[i].type = Type.terror;
+                return;
+            }
+            if (imp.mod)
+            {
+                imp.mod.importAll(null);
+            }
+        }
+        imp.semanticRun = PASS.semanticdone;
+        addImportDep(global.params.moduleDeps, imp, sc._module);
+    }
+
+    // AttribDeclaration: pass through and recurse into decl
+    override void visit(AttribDeclaration ad)
+    {
+        if (ad.errors || !ad.decl) return;
+        foreach (s; *ad.decl)
+            s.accept(this);
+    }
+
+    // ConditionalDeclaration (version/debug): evaluate condition
+    override void visit(ConditionalDeclaration cdc)
+    {
+        if (cdc.errors || !cdc.condition) return;
+        Scope* csc = cdc._scope ? cdc._scope : sc;
+        bool active = dmd.expressionsem.include(cdc.condition, csc);
+        Dsymbols* branch = active ? cdc.decl : cdc.elsedecl;
+        if (branch)
+        {
+            Scope* ns = cdc.newScope(csc);
+            foreach (s; *branch)
+                s.accept(this);
+            if (ns != csc)
+                ns.pop();
+        }
+    }
+
+    // StaticIfDeclaration: evaluate condition (may trigger expressionSemantic)
+    override void visit(StaticIfDeclaration sif)
+    {
+        if (sif.errors || sif.onStack) return;
+        sif.onStack = true;
+        scope(exit) sif.onStack = false;
+
+        if (sc && sif.condition.inc == Include.notComputed)
+        {
+            assert(sif.scopesym);
+            assert(sif._scope);
+
+            Scope* saved_scope = sc;
+            sc = sif._scope;
+
+            bool active = dmd.expressionsem.include(sif.condition, sc);
+            Dsymbols* branch = active ? sif.decl : sif.elsedecl;
+
+            if (branch && !sif.addisdone)
+            {
+                branch.foreachDsymbol((s)
+                {
+                    s.addMember(sif._scope, sif.scopesym);
+                    s.setScope(sif._scope);
+                });
+                sif.addisdone = true;
+            }
+
+            sc = saved_scope;
+
+            if (branch)
+            {
+                Scope* ns = sif.newScope(sc);
+                foreach (s; *branch)
+                    s.accept(this);
+                if (ns != sc)
+                    ns.pop();
+            }
+        }
+        else
+        {
+            bool active = dmd.expressionsem.include(sif.condition,
+                sif._scope ? sif._scope : sc);
+            Dsymbols* branch = active ? sif.decl : sif.elsedecl;
+            if (branch)
+            {
+                Scope* ns = sif.newScope(sc);
+                foreach (s; *branch)
+                    s.accept(this);
+                if (ns != sc)
+                    ns.pop();
+            }
+        }
+    }
+
+    // StaticForeachDeclaration: expand and recurse
+    override void visit(StaticForeachDeclaration sfd)
+    {
+        if (sfd.errors || sfd.onStack) return;
+        if (!sfd.cached)
+        {
+            include(sfd, sc);
+        }
+        if (sfd.cache)
+        {
+            foreach (s; *sfd.cache)
+                s.accept(this);
+        }
+    }
+
+    // PragmaDeclaration: recurse into decl
+    override void visit(PragmaDeclaration pd)
+    {
+        if (pd.decl)
+        {
+            foreach (s; *pd.decl)
+                s.accept(this);
+        }
+    }
 }

@@ -247,6 +247,7 @@ extern (C++) struct Param
     Output makeDeps;                    // Generate make file dependencies
     Output mixinOut;                    // write expanded mixins for debugging
     Output moduleDeps;                  // Generate `.deps` module dependencies
+    bool depsOnly;                      // -deps-only: skip unnecessary phases
 
     bool debugEnabled;                  // Global -debug flag (no -debug=XXX) is active
 

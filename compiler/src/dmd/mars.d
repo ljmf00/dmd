@@ -1760,6 +1760,10 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, out Param 
         {
             driverParams.debuglibname = (p + 1 + 9).toDString;
         }
+        else if (arg == "-deps-only")
+        {
+            params.depsOnly = true;
+        }
         else if (startsWith(p + 1, "deps"))          // https://dlang.org/dmd.html#switch-deps
         {
             if (params.moduleDeps.doOutput)
@@ -1802,12 +1806,6 @@ bool parseCommandLine(const ref Strings arguments, const size_t argc, out Param 
             }
             // Else output to stdout.
             params.makeDeps.doOutput = true;
-        }
-        else if (arg == "-deps-only")
-        {
-            params.depsOnly = true;
-            if (!params.moduleDeps.buffer)
-                params.moduleDeps.buffer = new OutBuffer();
         }
         else if (arg == "-main")             // https://dlang.org/dmd.html#switch-main
         {

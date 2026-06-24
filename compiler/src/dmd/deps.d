@@ -38,12 +38,13 @@ import dmd.dmodule : Module;
 import dmd.attrib;
 import dmd.dscope;
 import dmd.dsymbol;
-import dmd.dsymbolsem : importAll, include, load, newScope;
+import dmd.dsymbolsem : importAll, include, load, newScope, addMember, setScope;
 import dmd.expressionsem;
 import dmd.cond;
 import dmd.globals : Param, Output, global;
 import dmd.mtype;
 import dmd.visitor;
+import dmd.arraytypes;
 import dmd.hdrgen : visibilityToBuffer;
 import dmd.id : Id;
 import dmd.location : Loc;
@@ -344,7 +345,10 @@ extern(C++) class DepsCollectVisitor : Visitor
     {
         if (cdc.errors || !cdc.condition) return;
         Scope* csc = cdc._scope ? cdc._scope : sc;
-        bool active = dmd.expressionsem.include(cdc.condition, csc);
+        auto savedBuf = global.params.moduleDeps.buffer;
+        global.params.moduleDeps.buffer = null;
+        bool active = dmd.expressionsem.include(cdc.condition, csc) != 0;
+        global.params.moduleDeps.buffer = savedBuf;
         Dsymbols* branch = active ? cdc.decl : cdc.elsedecl;
         if (branch)
         {
@@ -371,16 +375,19 @@ extern(C++) class DepsCollectVisitor : Visitor
             Scope* saved_scope = sc;
             sc = sif._scope;
 
-            bool active = dmd.expressionsem.include(sif.condition, sc);
+            auto savedBuf = global.params.moduleDeps.buffer;
+            global.params.moduleDeps.buffer = null;
+            bool active = dmd.expressionsem.include(sif.condition, sc) != 0;
+            global.params.moduleDeps.buffer = savedBuf;
             Dsymbols* branch = active ? sif.decl : sif.elsedecl;
 
             if (branch && !sif.addisdone)
             {
-                branch.foreachDsymbol((s)
+                foreach (s; *branch)
                 {
-                    s.addMember(sif._scope, sif.scopesym);
-                    s.setScope(sif._scope);
-                });
+                    addMember(s, sif._scope, sif.scopesym);
+                    setScope(s, sif._scope);
+                }
                 sif.addisdone = true;
             }
 
@@ -397,8 +404,11 @@ extern(C++) class DepsCollectVisitor : Visitor
         }
         else
         {
+            auto savedBuf2 = global.params.moduleDeps.buffer;
+            global.params.moduleDeps.buffer = null;
             bool active = dmd.expressionsem.include(sif.condition,
-                sif._scope ? sif._scope : sc);
+                sif._scope ? sif._scope : sc) != 0;
+            global.params.moduleDeps.buffer = savedBuf2;
             Dsymbols* branch = active ? sif.decl : sif.elsedecl;
             if (branch)
             {

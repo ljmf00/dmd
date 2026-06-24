@@ -632,13 +632,15 @@ private int tryMain(const(char)[][] argv, out Param params)
     // --- NEW: deps-only fast path ---
     if (params.depsOnly)
     {
+        if (!params.moduleDeps.buffer)
+            params.moduleDeps.buffer = new OutBuffer();
         if (OutBuffer* ob = params.moduleDeps.buffer)
         {
             foreach (m; modules)
             {
                 if (params.v.verbose)
                     eSink.message(Loc.initial, "deps-only %s", m.toChars());
-                DepsCollectVisitor dcv(m._scope);
+                auto dcv = new DepsCollectVisitor(m._scope);
                 m.accept(dcv);
             }
 

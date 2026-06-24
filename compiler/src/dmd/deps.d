@@ -369,10 +369,9 @@ extern(C++) class DepsCollectVisitor : Visitor
         sif.onStack = true;
         scope(exit) sif.onStack = false;
 
-        if (sc && sif.condition.inc == Include.notComputed)
+        if (sc && sif.condition.inc == Include.notComputed && sif.scopesym && sif._scope)
         {
-            assert(sif.scopesym);
-            assert(sif._scope);
+            auto nerrors = global.errors;
 
             Scope* saved_scope = sc;
             sc = sif._scope;
@@ -381,6 +380,7 @@ extern(C++) class DepsCollectVisitor : Visitor
             global.params.moduleDeps.buffer = null;
             bool active = dmd.expressionsem.include(sif.condition, sc) != 0;
             global.params.moduleDeps.buffer = savedBuf;
+            global.errors = nerrors;
             Dsymbols* branch = active ? sif.decl : sif.elsedecl;
 
             if (branch && !sif.addisdone)
@@ -406,20 +406,21 @@ extern(C++) class DepsCollectVisitor : Visitor
         }
         else
         {
-            auto savedBuf2 = global.params.moduleDeps.buffer;
-            global.params.moduleDeps.buffer = null;
-            bool active = dmd.expressionsem.include(sif.condition,
-                sif._scope ? sif._scope : sc) != 0;
-            global.params.moduleDeps.buffer = savedBuf2;
-            Dsymbols* branch = active ? sif.decl : sif.elsedecl;
-            if (branch)
+            // Condition can't be evaluated (e.g. template param refs).
+            // Walk both branches conservatively.
+            void walk(Dsymbols* branch)
             {
-                Scope* ns = sif.newScope(sc);
-                foreach (s; *branch)
-                    s.accept(this);
-                if (ns != sc)
-                    ns.pop();
+                if (branch)
+                {
+                    Scope* ns = sif.newScope(sc);
+                    foreach (s; *branch)
+                        s.accept(this);
+                    if (ns != sc)
+                        ns.pop();
+                }
             }
+            walk(sif.decl);
+            walk(sif.elsedecl);
         }
     }
 

@@ -40,14 +40,20 @@ import dmd.dscope;
 import dmd.dsymbol;
 import dmd.dsymbolsem : importAll, include, load, newScope, addMember, setScope;
 import dmd.expressionsem;
+import dmd.expression : ArgumentList;
 import dmd.cond;
+import dmd.func;
+import dmd.dtemplate : TemplateInstance, TemplateMixin;
+import dmd.astcodegen;
 import dmd.globals : Param, Output, global;
 import dmd.mtype;
 import dmd.visitor;
 import dmd.arraytypes;
+import dmd.declaration;
 import dmd.hdrgen : visibilityToBuffer;
 import dmd.id : Id;
 import dmd.location : Loc;
+import dmd.statement;
 import dmd.root.filename;
 import dmd.root.string : toDString;
 import dmd.utils : escapePath;
@@ -291,23 +297,137 @@ extern(C++) class DepsCollectVisitor : Visitor
         this.sc = sc;
     }
 
-    // Catch-all: skip everything we don't specifically handle
+    // Catch-alls: skip everything we don't specifically handle
     override void visit(Dsymbol d) {}
+    override void visit(ASTCodegen.Parameter p) {}
+    override void visit(Statement s) {}
+    override void visit(ASTCodegen.Type t) {}
+    override void visit(ASTCodegen.Expression e) {}
+    override void visit(ASTCodegen.TemplateParameter tp) {}
+    override void visit(ASTCodegen.Condition c) {}
+    override void visit(ASTCodegen.Initializer i) {}
+
+
 
     // Module: recurse into members using existing scope
     override void visit(Module m)
     {
         if (!m.members) return;
         foreach (s; *m.members)
-            s.accept(this);
+        {
+            if (s) s.accept(this);
+        }
     }
 
     // ScopeDsymbol: recurse into members (catches class, struct, union, template, etc.)
     override void visit(ScopeDsymbol sd)
     {
         if (!sd.members) return;
+        if (sd.isTemplateDeclaration())
+            return;
         foreach (s; *sd.members)
             s.accept(this);
+    }
+
+    // TemplateMixin: walk the template's members directly (by name lookup)
+    override void visit(TemplateMixin tm)
+    {
+        // Walk all modules in Module.amodules to find the template declaration
+        if (!tm.tempdecl)
+        {
+            for (size_t i = 0; i < Module.amodules.length; i++)
+            {
+                auto m = Module.amodules[i];
+                if (!m.members) continue;
+                foreach (s; *m.members)
+                {
+                    if (auto td = s.isTemplateDeclaration())
+                    {
+                        if (td.ident == tm.name)
+                        {
+                            tm.tempdecl = td;
+                            goto Lfound;
+                        }
+                    }
+                }
+            }
+            Lfound: {}
+        }
+        if (auto td = tm.tempdecl ? tm.tempdecl.isTemplateDeclaration() : null)
+        {
+            if (td.members)
+            {
+                auto savedSc = sc;
+                if (td._scope) sc = td._scope;
+                foreach (s; *td.members)
+                    if (s) s.accept(this);
+                sc = savedSc;
+            }
+        }
+    }
+
+    // FuncDeclaration: walk function body (catches ctor, dtor, unittest, etc.)
+    // Skip uninstantiated template function bodies to match -deps behavior.
+    override void visit(FuncDeclaration fd)
+    {
+        if (!fd.fbody) return;
+        auto p = fd.toParent();
+        if ((p && p.isTemplateDeclaration()) ||
+            (fd.overnext && fd.overnext.isTemplateDeclaration()))
+            return;
+        fd.fbody.accept(this);
+    }
+
+    // AliasDeclaration: walk aliassym/type (catches template instances via aliases)
+    override void visit(AliasDeclaration ad)
+    {
+        TemplateInstance ti;
+        if (ad.aliassym)
+            ti = ad.aliassym.isTemplateInstance();
+        if (!ti && ad.type)
+        {
+            if (auto ti2 = ad.type.isTypeInstance())
+                ti = ti2.tempinst;
+        }
+        if (ti)
+        {
+            // Resolve tempdecl by name
+            if (!ti.tempdecl && sc && sc._module && sc._module.members)
+            {
+                foreach (s; *sc._module.members)
+                {
+                    if (auto td = s.isTemplateDeclaration())
+                    {
+                        if (td.ident == ti.name)
+                        {
+                            ti.tempdecl = td;
+                            break;
+                        }
+                    }
+                }
+            }
+            if (auto td = ti.tempdecl ? ti.tempdecl.isTemplateDeclaration() : null)
+            {
+                if (td.members)
+                {
+                    auto savedSc = sc;
+                    if (td._scope) sc = td._scope;
+                    foreach (s; *td.members)
+                        if (s) s.accept(this);
+                    sc = savedSc;
+                }
+            }
+            return;
+        }
+        if (ad.aliassym)
+            ad.aliassym.accept(this);
+    }
+
+    // UnitTestDeclaration handling
+    override void visit(UnitTestDeclaration utd)
+    {
+        if (utd.fbody)
+            utd.fbody.accept(this);
     }
 
     // Import: register the dependency
@@ -447,5 +567,175 @@ extern(C++) class DepsCollectVisitor : Visitor
             foreach (s; *pd.decl)
                 s.accept(this);
         }
+    }
+
+    // --- Statement visitors for function-body import capture ---
+
+    // ImportStatement: collect imports inside function bodies
+    override void visit(ImportStatement s)
+    {
+        if (s.imports)
+        {
+            foreach (imp; *s.imports)
+                if (imp) imp.accept(this);
+        }
+    }
+
+    // CompoundStatement: recurse into statement list
+    override void visit(CompoundStatement s)
+    {
+        if (s.statements)
+        {
+            foreach (st; *s.statements)
+                if (st) st.accept(this);
+        }
+    }
+
+    // ScopeStatement: recurse into guarded statement
+    override void visit(ScopeStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    override void visit(IfStatement s)
+    {
+        if (s.ifbody) s.ifbody.accept(this);
+        if (s.elsebody) s.elsebody.accept(this);
+    }
+
+    override void visit(WhileStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(DoStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(ForStatement s)
+    {
+        if (s.init) s.init.accept(this);
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(ForeachStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(ForeachRangeStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(SwitchStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(CaseStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    override void visit(CaseRangeStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    override void visit(DefaultStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    override void visit(WithStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(TryCatchStatement s)
+    {
+        if (s._body) s._body.accept(this);
+        if (s.catches)
+        {
+            foreach (c; *s.catches)
+                if (c.handler) c.handler.accept(this);
+        }
+    }
+
+    override void visit(TryFinallyStatement s)
+    {
+        if (s._body) s._body.accept(this);
+        if (s.finalbody) s.finalbody.accept(this);
+    }
+
+    override void visit(SynchronizedStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(LabelStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    override void visit(PragmaStatement s)
+    {
+        if (s._body) s._body.accept(this);
+    }
+
+    override void visit(ScopeGuardStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
+    }
+
+    // ConditionalStatement (statement-level version/debug): evaluate condition.
+    // Suppress errors since template params may be unbound in function bodies.
+    override void visit(ConditionalStatement s)
+    {
+        auto savedBuf = global.params.moduleDeps.buffer;
+        global.params.moduleDeps.buffer = null;
+        auto savedErrors = global.errors;
+        global.errors = 0;
+        bool active = dmd.expressionsem.include(s.condition, sc) != 0;
+        bool failed = global.errors != 0;
+        global.errors = savedErrors;
+        global.params.moduleDeps.buffer = savedBuf;
+        if (failed)
+        {
+            if (s.ifbody) s.ifbody.accept(this);
+            if (s.elsebody) s.elsebody.accept(this);
+        }
+        else if (active)
+        {
+            if (s.ifbody) s.ifbody.accept(this);
+        }
+        else
+        {
+            if (s.elsebody) s.elsebody.accept(this);
+        }
+    }
+
+    override void visit(StaticForeachStatement s)
+    {
+        if (s.sfe.aggrfe && s.sfe.aggrfe._body)
+            s.sfe.aggrfe._body.accept(this);
+        if (s.sfe.rangefe && s.sfe.rangefe._body)
+            s.sfe.rangefe._body.accept(this);
+    }
+
+    override void visit(UnrolledLoopStatement s)
+    {
+        if (s.statements)
+        {
+            foreach (st; *s.statements)
+                if (st) st.accept(this);
+        }
+    }
+
+    override void visit(ForwardingStatement s)
+    {
+        if (s.statement) s.statement.accept(this);
     }
 }

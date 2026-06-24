@@ -321,6 +321,8 @@ extern(C++) class DepsCollectVisitor : Visitor
             {
                 for (size_t i; i < imp.aliasdecls.length; i++)
                     imp.aliasdecls[i].type = Type.terror;
+                imp.semanticRun = PASS.semanticdone;
+                addImportDep(global.params.moduleDeps, imp, sc._module);
                 return;
             }
             if (imp.mod)

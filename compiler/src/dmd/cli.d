@@ -351,7 +351,7 @@ dmd -cov -unittest myprog.d
             (only imports).`,
         ),
         Option("deps-only",
-            "print module dependencies and exit before semantic2 (fast)",
+            "print module dependencies and exit before semantic analysis (fast)",
             "Like `-deps` but skips all compiler phases except parsing and import resolution. " ~
             "Outputs import dependencies only (same format as `-deps`)."
         ),
